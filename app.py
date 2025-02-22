@@ -32,10 +32,56 @@ def extract_text_from_pdf(pdf_path):
             text += page.extract_text() + "\n"
     return text
 
-def generate_flashcards(text):
+def detect_language(text):
+    # Simple language detection based on common words
+    # You might want to use a more sophisticated library like langdetect in production
+    common_words = {
+        'en': ['the', 'and', 'is', 'in', 'it'],
+        'bg': ['и', 'в', 'се', 'на', 'за'],
+        'es': ['el', 'la', 'en', 'y', 'es'],
+        'fr': ['le', 'la', 'et', 'en', 'est'],
+        'de': ['der', 'die', 'und', 'in', 'ist'],
+        'it': ['il', 'la', 'e', 'in', 'è'],
+        'ru': ['и', 'в', 'на', 'что', 'с'],
+        'zh': ['的', '是', '在', '和', '了'],
+        'ja': ['の', 'は', 'に', 'を', 'た']
+    }
+    
+    text_lower = text.lower()
+    max_count = 0
+    detected_lang = 'en'  # default to English
+    
+    for lang, words in common_words.items():
+        count = sum(1 for word in words if word in text_lower)
+        if count > max_count:
+            max_count = count
+            detected_lang = lang
+    
+    return detected_lang
+
+def generate_flashcards(text, language='auto', num_cards=10):
     client = Groq(api_key=os.getenv('GROQ_API_KEY'))
     
-    prompt = f"""Given the following text, generate up to 10 high-quality flashcards. 
+    # Detect language if set to auto
+    if language == 'auto':
+        language = detect_language(text)
+    
+    # Language-specific instructions
+    lang_instructions = {
+        'en': 'in English',
+        'bg': 'in Bulgarian',
+        'es': 'in Spanish',
+        'fr': 'in French',
+        'de': 'in German',
+        'it': 'in Italian',
+        'ru': 'in Russian',
+        'zh': 'in Chinese',
+        'ja': 'in Japanese'
+    }
+    
+    lang_instruction = lang_instructions.get(language, 'in English')
+    
+    prompt = f"""Given the following text, generate {num_cards} high-quality flashcards {lang_instruction}. 
     Each flashcard should have a clear question on the front and a concise answer on the back. 
     Focus on the most important concepts and key information.
     
@@ -43,6 +89,7 @@ def generate_flashcards(text):
     
     Format each flashcard as a JSON object with 'id', 'front', and 'back' fields. 
     Return only the JSON array of flashcards.
+    Make sure both the question and answer are {lang_instruction}.
     """
     
     try:
@@ -50,7 +97,7 @@ def generate_flashcards(text):
             messages=[{"role": "user", "content": prompt}],
             model="mixtral-8x7b-32768",
             temperature=0.7,
-            max_tokens=2000
+            max_tokens=4000
         )
         
         # Extract the flashcards from the response
@@ -78,7 +125,7 @@ def generate_flashcards(text):
                     'back': ' '.join(sentence.split()[len(sentence.split())//2:])
                 })
         
-        return flashcards[:min(len(flashcards), 10)]
+        return flashcards[:min(len(flashcards), int(num_cards))]
 
 @app.route('/')
 def index():
@@ -93,6 +140,13 @@ def upload_file():
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
     
+    # Get language and cards count from form data
+    language = request.form.get('language', 'auto')
+    try:
+        cards_count = int(request.form.get('cards_count', '10'))
+    except ValueError:
+        cards_count = 10
+    
     if file and file.filename.endswith('.pdf'):
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -100,7 +154,7 @@ def upload_file():
         
         try:
             text = extract_text_from_pdf(filepath)
-            flashcards = generate_flashcards(text)
+            flashcards = generate_flashcards(text, language, cards_count)
             
             # Save flashcards to a JSON file
             cards_filename = f"{filename}_cards.json"
@@ -110,7 +164,8 @@ def upload_file():
             
             return jsonify({
                 'message': 'File successfully processed',
-                'flashcards': flashcards
+                'flashcards': flashcards,
+                'language': language
             })
         except Exception as e:
             return jsonify({'error': str(e)}), 500
