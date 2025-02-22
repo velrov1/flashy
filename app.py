@@ -33,8 +33,6 @@ def extract_text_from_pdf(pdf_path):
     return text
 
 def detect_language(text):
-    # Simple language detection based on common words
-    # You might want to use a more sophisticated library like langdetect in production
     common_words = {
         'en': ['the', 'and', 'is', 'in', 'it'],
         'bg': ['и', 'в', 'се', 'на', 'за'],
@@ -93,6 +91,7 @@ def generate_flashcards(text, language='auto', num_cards=10):
     """
     
     try:
+        app.logger.info(f"Sending request to Groq API with prompt: {prompt}")
         response = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model="mixtral-8x7b-32768",
@@ -102,6 +101,8 @@ def generate_flashcards(text, language='auto', num_cards=10):
         
         # Extract the flashcards from the response
         flashcards_text = response.choices[0].message.content
+        app.logger.info(f"Received response from Groq API: {flashcards_text}")
+        
         # Clean up the response to ensure it's valid JSON
         flashcards_text = flashcards_text.strip()
         if flashcards_text.startswith('```json'):
@@ -112,7 +113,7 @@ def generate_flashcards(text, language='auto', num_cards=10):
         flashcards = json.loads(flashcards_text)
         return flashcards
     except Exception as e:
-        print(f"Error generating flashcards: {str(e)}")
+        app.logger.error(f"Error generating flashcards: {str(e)}")
         # Fallback to basic flashcard generation if AI fails
         sentences = sent_tokenize(text)
         flashcards = []
@@ -140,7 +141,6 @@ def upload_file():
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
     
-    # Get language and cards count from form data
     language = request.form.get('language', 'auto')
     try:
         cards_count = int(request.form.get('cards_count', '10'))
@@ -156,7 +156,6 @@ def upload_file():
             text = extract_text_from_pdf(filepath)
             flashcards = generate_flashcards(text, language, cards_count)
             
-            # Save flashcards to a JSON file
             cards_filename = f"{filename}_cards.json"
             cards_filepath = os.path.join(app.config['UPLOAD_FOLDER'], cards_filename)
             with open(cards_filepath, 'w') as f:
@@ -168,6 +167,7 @@ def upload_file():
                 'language': language
             })
         except Exception as e:
+            app.logger.error(f"Error processing file: {str(e)}")
             return jsonify({'error': str(e)}), 500
     
     return jsonify({'error': 'Invalid file type'}), 400
@@ -181,7 +181,6 @@ def export_pdf():
     output_path = os.path.join(app.config['UPLOAD_FOLDER'], 'flashcards.pdf')
     c = canvas.Canvas(output_path)
     
-    # Set up PDF formatting
     margin = 50
     page_width = 550
     page_height = 750
@@ -192,10 +191,8 @@ def export_pdf():
         
         y_position = page_height - (i % 4) * 180 - margin
         
-        # Draw card
         c.rect(margin, y_position - 150, page_width - 2*margin, 140)
         
-        # Add content
         c.setFont("Helvetica", 12)
         c.drawString(margin + 10, y_position - 30, f"Front: {card['front'][:100]}...")
         c.drawString(margin + 10, y_position - 90, f"Back: {card['back'][:100]}...")
