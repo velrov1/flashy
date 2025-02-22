@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flashy - PDF to Flashcards</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .flashcard {
+            perspective: 1000px;
+            transform-style: preserve-3d;
+            transition: transform 0.6s;
+        }
+
+        .flashcard.flipped {
+            transform: rotateY(180deg);
+        }
+
+        .front, .back {
+            backface-visibility: hidden;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            padding: 2rem;
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .back {
+            transform: rotateY(180deg);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .card-enter {
+            opacity: 0;
+            transform: translateX(100px);
+        }
+
+        .card-enter-active {
+            opacity: 1;
+            transform: translateX(0);
+            transition: all 0.3s ease;
+        }
+
+        .card-exit {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .card-exit-active {
+            opacity: 0;
+            transform: translateX(-100px);
+            transition: all 0.3s ease;
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: #e2e8f0;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <header class="text-center mb-12">
+            <h1 class="text-4xl font-bold text-indigo-600 mb-2">Flashy</h1>
+            <p class="text-gray-600">Transform your PDFs into interactive flashcards</p>
+        </header>
+
+        <div class="max-w-3xl mx-auto bg-white rounded-lg shadow-lg p-6 mb-8">
+            <div id="upload-section" class="text-center">
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 mb-4">
+                    <input type="file" id="pdf-upload" accept=".pdf" class="hidden">
+                    <label for="pdf-upload" class="cursor-pointer">
+                        <i class="fas fa-cloud-upload-alt text-4xl text-indigo-500 mb-4"></i>
+                        <p class="text-gray-600">Click to upload or drag and drop your PDF</p>
+                    </label>
+                </div>
+                <div id="upload-status" class="hidden">
+                    <div class="flex items-center justify-center">
+                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
+                        <span class="ml-2 text-gray-600">Processing your PDF...</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="flashcards-section" class="hidden">
+                <div class="flashcard-container relative bg-white rounded-xl shadow-lg p-6 mb-6" style="height: 300px;">
+                    <div class="progress-bar mb-4">
+                        <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="flashcard w-full h-full cursor-pointer" data-side="front">
+                        <div class="front">
+                            <p id="card-front" class="text-xl text-center"></p>
+                        </div>
+                        <div class="back">
+                            <p id="card-back" class="text-xl text-center"></p>
+                        </div>
+                    </div>
+                    <div class="absolute bottom-2 right-2 text-sm text-gray-500">
+                        <span id="card-counter">0/0</span>
+                    </div>
+                </div>
+
+                <div class="flex justify-center space-x-4 mb-6">
+                    <button id="prev-btn" class="bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600">
+                        <i class="fas fa-chevron-left mr-2"></i>Previous
+                    </button>
+                    <button id="flip-btn" class="bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600">
+                        <i class="fas fa-sync-alt mr-2"></i>Flip
+                    </button>
+                    <button id="next-btn" class="bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600">
+                        Next<i class="fas fa-chevron-right ml-2"></i>
+                    </button>
+                </div>
+
+                <div class="flex justify-center space-x-4">
+                    <button id="shuffle-btn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+                        <i class="fas fa-random mr-2"></i>Shuffle
+                    </button>
+                    <button id="export-btn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                        <i class="fas fa-file-export mr-2"></i>Export to PDF
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentFlashcards = [];
+        let currentIndex = 0;
+
+        document.getElementById('pdf-upload').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const uploadSection = document.getElementById('upload-section');
+            const uploadStatus = document.getElementById('upload-status');
+            const flashcardsSection = document.getElementById('flashcards-section');
+
+            uploadSection.querySelector('label').classList.add('hidden');
+            uploadStatus.classList.remove('hidden');
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    currentFlashcards = data.flashcards;
+                    showFlashcard(0);
+                    uploadSection.classList.add('hidden');
+                    flashcardsSection.classList.remove('hidden');
+                } else {
+                    alert(data.error);
+                }
+            } catch (error) {
+                alert('Error processing PDF');
+            } finally {
+                uploadStatus.classList.add('hidden');
+                uploadSection.querySelector('label').classList.remove('hidden');
+            }
+        });
+
+        function showFlashcard(index) {
+            if (currentFlashcards.length === 0) return;
+            
+            const card = currentFlashcards[index];
+            const flashcard = document.querySelector('.flashcard');
+            
+            // Animate out
+            flashcard.classList.add('card-exit-active');
+            
+            setTimeout(() => {
+                document.getElementById('card-front').textContent = card.front;
+                document.getElementById('card-back').textContent = card.back;
+                
+                // Reset card to front side
+                flashcard.classList.remove('flipped');
+                
+                // Animate in
+                flashcard.classList.remove('card-exit-active');
+                flashcard.classList.add('card-enter-active');
+                
+                updateProgress();
+            }, 300);
+        }
+
+        function updateProgress() {
+            const progress = ((currentIndex + 1) / currentFlashcards.length) * 100;
+            document.getElementById('progress-bar-fill').style.width = `${progress}%`;
+            document.getElementById('card-counter').textContent = `${currentIndex + 1}/${currentFlashcards.length}`;
+        }
+
+        document.getElementById('prev-btn').addEventListener('click', () => {
+            currentIndex = (currentIndex - 1 + currentFlashcards.length) % currentFlashcards.length;
+            showFlashcard(currentIndex);
+        });
+
+        document.getElementById('next-btn').addEventListener('click', () => {
+            currentIndex = (currentIndex + 1) % currentFlashcards.length;
+            showFlashcard(currentIndex);
+        });
+
+        document.getElementById('flip-btn').addEventListener('click', () => {
+            const flashcard = document.querySelector('.flashcard');
+            flashcard.classList.toggle('flipped');
+        });
+
+        document.getElementById('shuffle-btn').addEventListener('click', () => {
+            for (let i = currentFlashcards.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [currentFlashcards[i], currentFlashcards[j]] = [currentFlashcards[j], currentFlashcards[i]];
+            }
+            currentIndex = 0;
+            showFlashcard(currentIndex);
+        });
+
+        document.getElementById('export-btn').addEventListener('click', async () => {
+            try {
+                const response = await fetch('/export-pdf', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ flashcards: currentFlashcards })
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'flashcards.pdf';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                } else {
+                    alert('Error exporting PDF');
+                }
+            } catch (error) {
+                alert('Error exporting PDF');
+            }
+        });
+    </script>
+</body>
+</html>
